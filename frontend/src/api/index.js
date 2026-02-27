@@ -5,7 +5,7 @@
  */
 
 // API 基础配置
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
 // 请求超时时间（毫秒）
 const DEFAULT_TIMEOUT = 30000; // 30 秒

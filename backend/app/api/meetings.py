@@ -1,16 +1,21 @@
 """会议管理 API 接口"""
+import json
 import logging
 from typing import Optional
 from pathlib import Path
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.llm_client import LLMClient
 from app.core.exceptions import (
     NotFoundError,
     DatabaseError,
+    LLMServiceError,
     MeetingMinutesException,
     exception_to_http_exception,
     get_user_friendly_error
@@ -291,6 +296,97 @@ async def get_meeting_summary(
                 "message": get_user_friendly_error(e)
             }
         )
+
+
+@router.post("/{meeting_id}/regenerate-summary")
+async def regenerate_meeting_summary(
+    meeting_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    重新生成会议纪要（流式 SSE）
+    
+    - **meeting_id**: 会议ID
+    - 要求：会议必须有转录内容
+    - 返回：Server-Sent Events 流，data 为 JSON {chunk|done|error}
+    """
+    meeting = await get_meeting_or_404(meeting_id, db)
+    
+    if not meeting.transcript:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": 4004,
+                "message": "无转录内容，无法重新生成纪要。请确保语音识别已完成。"
+            }
+        )
+    
+    if meeting.status in ('uploaded', 'processing', 'transcribing', 'summarizing'):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": 4005,
+                "message": "会议正在处理中，请稍后再试"
+            }
+        )
+    
+    title = meeting.title
+    date = getattr(meeting, 'date', None)
+    participants = getattr(meeting, 'participants', None)
+    
+    async def event_generator():
+        full_summary = []
+        try:
+            llm_client = LLMClient(
+                settings.LLM_BASE_URL,
+                settings.LLM_API_KEY,
+                settings.LLM_MODEL,
+                max_retries=3
+            )
+            async for chunk in llm_client.generate_summary_stream(
+                transcript=meeting.transcript,
+                title=title,
+                date=date,
+                participants=participants
+            ):
+                full_summary.append(chunk)
+                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
+            
+            summary_str = "".join(full_summary)
+            if not summary_str:
+                yield f"data: {json.dumps({'error': '大模型返回空内容'}, ensure_ascii=False)}\n\n"
+                return
+            
+            async with async_session() as session:
+                m = await session.get(Meeting, meeting_id)
+                if m:
+                    m.summary = summary_str
+                    m.status = "completed"
+                    m.progress = 100
+                    m.current_step = "completed"
+                    m.error = None
+                    m.updated_at = datetime.utcnow()
+                    await session.commit()
+                    logger.info(f"Regenerated summary saved for meeting {meeting_id}")
+            
+            yield f"data: {json.dumps({'done': True, 'summary': summary_str}, ensure_ascii=False)}\n\n"
+            
+        except LLMServiceError as e:
+            logger.error(f"LLM error during regenerate summary: {e}")
+            yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error(f"Unexpected error during regenerate summary: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': get_user_friendly_error(e)}, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/{meeting_id}", response_model=BaseResponse)

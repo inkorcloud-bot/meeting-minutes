@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
@@ -80,20 +82,45 @@ app.include_router(upload_router)
 app.include_router(meetings_router)
 
 
-@app.get("/")
-async def root():
-    """根路径"""
-    return {
-        "name": settings.APP_NAME,
-        "version": "0.1.0",
-        "status": "running"
-    }
-
-
 @app.get("/health")
 async def health_check():
     """健康检查"""
     return {"status": "healthy"}
+
+
+# ========== 前端静态文件服务 ==========
+
+_dist_dir = Path(settings.FRONTEND_DIST_DIR).resolve()
+
+if _dist_dir.exists():
+    # 挂载 assets 子目录，享受 StaticFiles 的高效文件服务
+    _assets_dir = _dist_dir / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+    logger.info(f"Frontend dist found at {_dist_dir}, serving SPA.")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """为 Vue SPA 提供静态文件服务，未匹配的路径回退到 index.html"""
+        file_path = _dist_dir / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(_dist_dir / "index.html"))
+
+else:
+    logger.warning(
+        f"Frontend dist not found at {_dist_dir}. "
+        "Run `npm run build` in the frontend directory first."
+    )
+
+    @app.get("/")
+    async def root():
+        return {
+            "name": settings.APP_NAME,
+            "version": "0.1.0",
+            "status": "running",
+            "note": "Frontend not built. Run `npm run build` in frontend/."
+        }
 
 
 if __name__ == "__main__":

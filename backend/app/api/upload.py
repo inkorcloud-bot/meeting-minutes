@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/meetings", tags=["meetings"])
 
+# ASR_API 支持的所有音频格式
+ALLOWED_AUDIO_EXTENSIONS = frozenset({
+    '3gp', '3g2', '8svx', 'aa', 'aac', 'aax', 'ac3', 'act', 'adp', 'adts',
+    'adx', 'aif', 'aiff', 'amr', 'ape', 'asf', 'ast', 'au', 'avr', 'caf',
+    'cda', 'dff', 'dsf', 'dsm', 'dss', 'dts', 'eac3', 'ec3', 'f32', 'f64',
+    'fap', 'flac', 'flv', 'gsm', 'ircam', 'm2ts', 'm4a', 'm4b', 'm4r',
+    'mka', 'mkv', 'mp2', 'mp3', 'mp4', 'mpc', 'mpp', 'mts', 'nut', 'nsv',
+    'oga', 'ogg', 'oma', 'opus', 'qcp', 'ra', 'ram', 'rm', 'sln', 'smp',
+    'snd', 'sox', 'spx', 'tak', 'tta', 'voc', 'w64', 'wav', 'wave', 'webm',
+    'wma', 'wve', 'wv', 'xa', 'xwma',
+})
+
 
 def validate_audio_file(audio: UploadFile, content: bytes) -> tuple[str, int]:
     """
@@ -38,15 +50,14 @@ def validate_audio_file(audio: UploadFile, content: bytes) -> tuple[str, int]:
         FileValidationError: 当文件验证失败时
     """
     # 验证文件类型
-    allowed_extensions = {'mp3', 'wav', 'm4a', 'ogg', 'flac'}
     file_ext = audio.filename.split('.')[-1].lower() if '.' in audio.filename else ''
     
     if not file_ext:
         raise FileValidationError("无法识别文件格式，请确保文件名包含扩展名")
     
-    if file_ext not in allowed_extensions:
+    if file_ext not in ALLOWED_AUDIO_EXTENSIONS:
         raise FileValidationError(
-            f"不支持的文件格式 '{file_ext}'。支持的格式: {', '.join(allowed_extensions)}"
+            f"不支持的文件格式 '{file_ext}'。支持的格式: MP3, WAV, M4A, OGG, FLAC, AAC, OPUS 等共 {len(ALLOWED_AUDIO_EXTENSIONS)} 种"
         )
     
     # 检查文件大小
@@ -165,7 +176,7 @@ async def upload_meeting(
     """
     上传会议音频并启动异步处理
     
-    支持的音频格式: MP3, WAV, M4A, OGG, FLAC
+    支持的音频格式: 与 ASR_API 一致，包括 MP3, WAV, M4A, OGG, FLAC, AAC, OPUS 等 70+ 种格式
     
     状态流转: uploaded -> processing -> transcribing -> summarizing -> completed
     """

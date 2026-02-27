@@ -79,7 +79,7 @@
             :on-remove="handleFileRemove"
             :before-upload="beforeUpload"
             :file-list="fileList"
-            accept=".mp3,.wav,.m4a,.ogg,.flac"
+            :accept="ACCEPT_STRING"
             :disabled="isUploading"
             drag
           >
@@ -89,7 +89,7 @@
             </div>
             <template #tip>
               <div class="el-upload__tip">
-                支持格式：MP3, WAV, M4A, OGG, FLAC，最大 500MB
+                支持 MP3、WAV、M4A、OGG、FLAC、AAC、OPUS 等 70+ 种音频格式，最大 500MB
               </div>
             </template>
           </el-upload>
@@ -149,7 +149,7 @@
 <script setup>
 import { ref, reactive, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import {
   UploadFilled,
   Loading,
@@ -162,6 +162,19 @@ import {
 } from '../api';
 
 const router = useRouter();
+
+// ASR_API 支持的所有音频格式
+const ALLOWED_AUDIO_EXTENSIONS = [
+  '3gp', '3g2', '8svx', 'aa', 'aac', 'aax', 'ac3', 'act', 'adp', 'adts',
+  'adx', 'aif', 'aiff', 'amr', 'ape', 'asf', 'ast', 'au', 'avr', 'caf',
+  'cda', 'dff', 'dsf', 'dsm', 'dss', 'dts', 'eac3', 'ec3', 'f32', 'f64',
+  'fap', 'flac', 'flv', 'gsm', 'ircam', 'm2ts', 'm4a', 'm4b', 'm4r',
+  'mka', 'mkv', 'mp2', 'mp3', 'mp4', 'mpc', 'mpp', 'mts', 'nut', 'nsv',
+  'oga', 'ogg', 'oma', 'opus', 'qcp', 'ra', 'ram', 'rm', 'sln', 'smp',
+  'snd', 'sox', 'spx', 'tak', 'tta', 'voc', 'w64', 'wav', 'wave', 'webm',
+  'wma', 'wve', 'wv', 'xa', 'xwma'
+];
+const ACCEPT_STRING = '.' + ALLOWED_AUDIO_EXTENSIONS.join(',.');
 
 // 表单引用
 const formRef = ref(null);
@@ -202,17 +215,16 @@ const canSubmit = computed(() => {
   return form.title && fileList.value.length > 0 && !isUploading.value;
 });
 
-// 文件改变
-const handleFileChange = (file) => {
-  form.audio = file.raw;
+// 文件改变（Element Plus 的 on-change 传入 uploadFile, uploadFiles）
+const handleFileChange = (file, uploadFiles) => {
+  form.audio = file?.raw;
   
   // 验证文件类型
-  const allowedExtensions = ['mp3', 'wav', 'm4a', 'ogg', 'flac'];
-  const fileName = file.name.toLowerCase();
+  const fileName = (file?.name || '').toLowerCase();
   const fileExt = fileName.split('.').pop();
   
-  if (!allowedExtensions.includes(fileExt)) {
-    errorMessage.value = `不支持的文件格式。支持的格式: ${allowedExtensions.join(', ')}`;
+  if (!ALLOWED_AUDIO_EXTENSIONS.includes(fileExt)) {
+    errorMessage.value = `不支持的文件格式。支持的格式: MP3、WAV、M4A、OGG、FLAC、AAC、OPUS 等共 ${ALLOWED_AUDIO_EXTENSIONS.length} 种`;
     handleFileRemove();
     return;
   }
@@ -225,6 +237,8 @@ const handleFileChange = (file) => {
     return;
   }
   
+  // 验证通过后更新 fileList，否则 canSubmit 中的 fileList.length > 0 不满足
+  fileList.value = uploadFiles || (file ? [file] : []);
   errorMessage.value = '';
 };
 
@@ -236,11 +250,10 @@ const handleFileRemove = () => {
 
 // 上传前检查
 const beforeUpload = (file) => {
-  const allowedExtensions = ['mp3', 'wav', 'm4a', 'ogg', 'flac'];
   const fileName = file.name.toLowerCase();
   const fileExt = fileName.split('.').pop();
   
-  if (!allowedExtensions.includes(fileExt)) {
+  if (!ALLOWED_AUDIO_EXTENSIONS.includes(fileExt)) {
     ElMessage.error(`不支持的文件格式: ${fileExt}`);
     return false;
   }

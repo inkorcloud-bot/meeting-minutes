@@ -138,24 +138,43 @@
       </el-card>
       
       <!-- 会议纪要 -->
-      <el-card v-if="meeting.summary" class="summary-card">
+      <el-card v-if="meeting.summary || streamingSummary || (meeting.transcript && canRegenerate)" class="summary-card">
         <template #header>
           <div class="card-header">
             <el-icon><document-copy /></el-icon>
             <span>会议纪要</span>
             <div class="header-actions">
-              <el-button type="primary" size="small" @click="copySummary">
+              <el-button
+                v-if="canRegenerate"
+                type="warning"
+                size="small"
+                :loading="isRegenerating"
+                :disabled="isRegenerating"
+                @click="handleRegenerate"
+              >
+                <el-icon><refresh /></el-icon>
+                重新生成
+              </el-button>
+              <el-button
+                v-if="(meeting.summary || streamingSummary) && !isRegenerating"
+                type="primary"
+                size="small"
+                @click="copySummary"
+              >
                 <el-icon><copy-document /></el-icon>
                 复制
               </el-button>
             </div>
           </div>
         </template>
-        <div class="summary-content" v-html="renderedSummary"></div>
+        <div v-if="meeting.summary || streamingSummary" class="summary-content" v-html="renderedSummary"></div>
+        <div v-else class="no-summary-hint">
+          <el-empty description="纪要生成失败或未生成，点击「重新生成」以基于转录内容重新生成" />
+        </div>
       </el-card>
       
       <!-- 暂无内容提示 -->
-      <div v-if="!meeting.transcript && !meeting.summary && !isProcessing" class="no-content">
+      <div v-if="!meeting.transcript && !meeting.summary && !streamingSummary && !isProcessing" class="no-content">
         <el-empty description="暂无内容" />
       </div>
     </div>
@@ -180,6 +199,7 @@ import { marked } from 'marked';
 import {
   getMeeting,
   deleteMeeting,
+  regenerateMeetingSummary,
   getUserFriendlyError
 } from '../api';
 
@@ -191,6 +211,8 @@ const meeting = ref(null);
 const isLoading = ref(true);
 const isRefreshing = ref(false);
 const errorMessage = ref('');
+const isRegenerating = ref(false);
+const streamingSummary = ref('');
 
 // 轮询定时器
 let pollTimer = null;
@@ -201,9 +223,15 @@ const isProcessing = computed(() => {
   return ['uploaded', 'processing', 'transcribing', 'summarizing'].includes(meeting.value.status);
 });
 
+const canRegenerate = computed(() => {
+  if (!meeting.value || !meeting.value.transcript) return false;
+  return ['completed', 'failed'].includes(meeting.value.status);
+});
+
 const renderedSummary = computed(() => {
-  if (!meeting.value || !meeting.value.summary) return '';
-  return marked(meeting.value.summary);
+  if (!meeting.value) return '';
+  const text = isRegenerating.value ? streamingSummary.value : (meeting.value.summary || '');
+  return text ? marked(text) : '';
 });
 
 // 状态映射
@@ -300,14 +328,40 @@ const refresh = () => {
 
 // 复制摘要
 const copySummary = async () => {
-  if (!meeting.value || !meeting.value.summary) return;
+  const text = meeting.value?.summary || streamingSummary.value;
+  if (!text) return;
   
   try {
-    await navigator.clipboard.writeText(meeting.value.summary);
+    await navigator.clipboard.writeText(text);
     ElMessage.success('已复制到剪贴板');
   } catch (error) {
     console.error('Failed to copy:', error);
     ElMessage.error('复制失败，请手动复制');
+  }
+};
+
+// 重新生成会议纪要
+const handleRegenerate = async () => {
+  if (!meeting.value || !meeting.value.transcript || isRegenerating.value) return;
+  
+  isRegenerating.value = true;
+  streamingSummary.value = '';
+  errorMessage.value = '';
+  
+  try {
+    const summary = await regenerateMeetingSummary(meeting.value.id, (chunk) => {
+      streamingSummary.value += chunk;
+    });
+    meeting.value.summary = summary;
+    meeting.value.status = 'completed';
+    meeting.value.progress = 100;
+    ElMessage.success('会议纪要重新生成成功');
+  } catch (error) {
+    console.error('Regenerate summary failed:', error);
+    ElMessage.error(getUserFriendlyError(error));
+  } finally {
+    isRegenerating.value = false;
+    streamingSummary.value = '';
   }
 };
 
@@ -597,5 +651,9 @@ onUnmounted(() => {
 
 .no-content {
   padding: 60px 0;
+}
+
+.no-summary-hint {
+  padding: 40px 0;
 }
 </style>

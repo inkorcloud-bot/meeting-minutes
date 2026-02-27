@@ -316,6 +316,96 @@ export async function deleteMeeting(meetingId) {
   return del(`/api/v1/meetings/${meetingId}`);
 }
 
+/**
+ * 重新生成会议纪要（流式 SSE）
+ * @param {string} meetingId - 会议ID
+ * @param {Function} onChunk - 每个内容片段的回调 (chunk: string) => void
+ * @returns {Promise<string>} 完整的会议纪要
+ */
+export async function regenerateMeetingSummary(meetingId, onChunk) {
+  const url = `${API_BASE_URL}/api/v1/meetings/${meetingId}/regenerate-summary`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180000); // 3 分钟超时
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Accept': 'text/event-stream' },
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
+
+  if (!response.ok) {
+    clearTimeout(timeoutId);
+    const data = await response.json().catch(() => ({}));
+    throw new ApiError(
+      data.message || `请求失败: ${response.status}`,
+      data.code || response.status,
+      response.status
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullSummary = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.slice(6).replace(/\r$/, '').trim();
+          if (!jsonStr) continue;
+          try {
+            const data = JSON.parse(jsonStr);
+            if (data.error) {
+              throw new ApiError(data.error, 500, 500);
+            }
+            if (data.chunk) {
+              fullSummary += data.chunk;
+              onChunk && onChunk(data.chunk);
+            }
+            if (data.done && data.summary !== undefined) {
+              fullSummary = data.summary;
+            }
+          } catch (e) {
+            if (e instanceof ApiError) throw e;
+          }
+        }
+      }
+    }
+
+    if (buffer.startsWith('data: ')) {
+      const jsonStr = buffer.slice(6).trim();
+      if (jsonStr) {
+        try {
+          const data = JSON.parse(jsonStr);
+          if (data.error) throw new ApiError(data.error, 500, 500);
+          if (data.done && data.summary !== undefined) fullSummary = data.summary;
+        } catch (e) {
+          if (e instanceof ApiError) throw e;
+        }
+      }
+    }
+
+    return fullSummary;
+  } finally {
+    clearTimeout(timeoutId);
+    reader.releaseLock();
+  }
+}
+
 export default {
   API_BASE_URL,
   ApiError,
@@ -331,4 +421,5 @@ export default {
   getMeetingStatus,
   getMeetingSummary,
   deleteMeeting,
+  regenerateMeetingSummary,
 };

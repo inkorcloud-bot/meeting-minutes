@@ -20,14 +20,20 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://api.deepseek.com/v1"
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "deepseek-chat"
+    LLM_TEMPERATURE: float = 0.4
+    LLM_TOP_P: float = 0.85
+    LLM_THINKING_BUDGET: int = 10000  # 深度思考 token 预算（DeepSeek 等）
     
+    # 前端静态文件目录（相对于 backend/ 运行目录）
+    FRONTEND_DIST_DIR: str = "../frontend/dist"
+
     # 文件存储配置
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE: int = 524288000  # 500MB in bytes
     
-    # ASR 轮询配置
-    ASR_POLL_INTERVAL: float = 3.0  # 轮询间隔（秒）
-    ASR_MAX_POLLS: int = 120  # 最大轮询次数（默认 120 次 = 10 分钟）
+    # ASR 轮询配置（大音频文件推理耗时较长，适当增加等待时间）
+    ASR_POLL_INTERVAL: float = 5.0  # 轮询间隔（秒）
+    ASR_MAX_POLLS: int = 720  # 最大轮询次数（默认 720 次 = 60 分钟）
     
     class Config:
         env_file = ".env"

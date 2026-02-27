@@ -303,7 +303,7 @@ class MeetingProcessor:
                 await self.update_progress('error', 15, error=user_error, error_details=error_details)
                 return False
             
-            # 步骤 2: 生成会议纪要
+            # 步骤 2: 生成会议纪要（使用流式 API，在内存中聚合后保存）
             try:
                 await self.update_progress('summarizing', 70)
                 logger.info(f"Starting summary generation for {self.meeting_id}")
@@ -315,12 +315,17 @@ class MeetingProcessor:
                     max_retries=3
                 )
                 
-                summary = await llm_client.generate_summary(
+                summary_parts = []
+                async for chunk in llm_client.generate_summary_stream(
                     transcript=transcript,
                     title=title,
                     date=date,
                     participants=participants
-                )
+                ):
+                    summary_parts.append(chunk)
+                summary = "".join(summary_parts)
+                if not summary:
+                    raise LLMServiceError("大模型返回空内容")
                 
                 logger.info(f"Summary generation completed for {self.meeting_id}, summary length: {len(summary)}")
                 

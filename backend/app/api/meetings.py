@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.llm_client import LLMClient
+from app.tasks.processing import get_llm_semaphore
 from app.core.exceptions import (
     NotFoundError,
     DatabaseError,
@@ -321,7 +322,7 @@ async def regenerate_meeting_summary(
             }
         )
     
-    if meeting.status in ('uploaded', 'processing', 'transcribing', 'summarizing'):
+    if meeting.status in ('uploaded', 'processing', 'transcribing', 'summarizing', 're-summarizing'):
         raise HTTPException(
             status_code=400,
             detail={
@@ -333,49 +334,86 @@ async def regenerate_meeting_summary(
     title = meeting.title
     date = getattr(meeting, 'date', None)
     participants = getattr(meeting, 'participants', None)
-    
+
+    # 立即将状态写入数据库，前端轮询可感知
+    async with async_session() as session:
+        m = await session.get(Meeting, meeting_id)
+        if m:
+            m.status = 're-summarizing'
+            m.current_step = 're-summarizing'
+            m.progress = 70
+            m.error = None
+            m.updated_at = datetime.utcnow()
+            await session.commit()
+
     async def event_generator():
         full_summary = []
         try:
-            llm_client = LLMClient(
-                settings.LLM_BASE_URL,
-                settings.LLM_API_KEY,
-                settings.LLM_MODEL,
-                max_retries=3
-            )
-            async for chunk in llm_client.generate_summary_stream(
-                transcript=meeting.transcript,
-                title=title,
-                date=date,
-                participants=participants
-            ):
-                full_summary.append(chunk)
-                yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
-            
+            llm_semaphore = get_llm_semaphore()
+            async with llm_semaphore:
+                llm_client = LLMClient(
+                    settings.LLM_BASE_URL,
+                    settings.LLM_API_KEY,
+                    settings.LLM_MODEL,
+                    max_retries=3
+                )
+                async for chunk in llm_client.generate_summary_stream(
+                    transcript=meeting.transcript,
+                    title=title,
+                    date=date,
+                    participants=participants
+                ):
+                    full_summary.append(chunk)
+                    yield f"data: {json.dumps({'chunk': chunk}, ensure_ascii=False)}\n\n"
+
             summary_str = "".join(full_summary)
             if not summary_str:
+                async with async_session() as session:
+                    m = await session.get(Meeting, meeting_id)
+                    if m:
+                        m.status = 'error'
+                        m.current_step = 'error'
+                        m.error = '大模型返回空内容'
+                        m.updated_at = datetime.utcnow()
+                        await session.commit()
                 yield f"data: {json.dumps({'error': '大模型返回空内容'}, ensure_ascii=False)}\n\n"
                 return
-            
+
             async with async_session() as session:
                 m = await session.get(Meeting, meeting_id)
                 if m:
                     m.summary = summary_str
-                    m.status = "completed"
+                    m.status = 'completed'
                     m.progress = 100
-                    m.current_step = "completed"
+                    m.current_step = 'completed'
                     m.error = None
                     m.updated_at = datetime.utcnow()
                     await session.commit()
                     logger.info(f"Regenerated summary saved for meeting {meeting_id}")
-            
+
             yield f"data: {json.dumps({'done': True, 'summary': summary_str}, ensure_ascii=False)}\n\n"
-            
+
         except LLMServiceError as e:
             logger.error(f"LLM error during regenerate summary: {e}")
+            async with async_session() as session:
+                m = await session.get(Meeting, meeting_id)
+                if m:
+                    m.status = 'error'
+                    m.current_step = 'error'
+                    m.error = get_user_friendly_error(e)
+                    m.updated_at = datetime.utcnow()
+                    await session.commit()
             yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.error(f"Unexpected error during regenerate summary: {e}", exc_info=True)
+            async with async_session() as session:
+                m = await session.get(Meeting, meeting_id)
+                if m:
+                    m.status = 'error'
+                    m.current_step = 'error'
+                    m.error = get_user_friendly_error(e)
+                    m.updated_at = datetime.utcnow()
+                    await session.commit()
             yield f"data: {json.dumps({'error': get_user_friendly_error(e)}, ensure_ascii=False)}\n\n"
     
     return StreamingResponse(

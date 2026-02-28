@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './index';
 import type {
   MeetingListItem,
@@ -51,15 +51,27 @@ export function useMeeting(meetingId: string | null): UseMeetingReturn {
   const [meeting, setMeeting] = useState<MeetingResponseData | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const hasDataRef = useRef<boolean>(false);
+
+  // 切换会议时重置状态
+  useEffect(() => {
+    hasDataRef.current = false;
+    setMeeting(null);
+    setError(null);
+  }, [meetingId]);
 
   const fetchMeeting = useCallback(async (): Promise<void> => {
     if (!meetingId) return;
-    
-    setLoading(true);
+
+    // 首次加载时才显示骨架屏，后续轮询静默刷新不触发 loading
+    if (!hasDataRef.current) {
+      setLoading(true);
+    }
     setError(null);
     try {
       const data = await api.getMeeting(meetingId);
       setMeeting(data);
+      hasDataRef.current = true;
     } catch (err) {
       setError((err as Error).message || '获取会议详情失败');
     } finally {

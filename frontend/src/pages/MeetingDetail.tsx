@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -16,6 +16,7 @@ import {
   ArrowLeftOutlined,
   CopyOutlined,
   DeleteOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { marked } from 'marked';
 import { useMeeting } from '../api/hooks';
@@ -24,12 +25,13 @@ import type { MeetingResponseData } from '../types';
 
 // 状态配置
 const statusConfig: Record<string, { type: string; text: string }> = {
-  uploaded: { type: 'info', text: '已上传' },
-  processing: { type: 'primary', text: '处理中' },
+  uploaded: { type: 'default', text: '已上传' },
+  processing: { type: 'processing', text: '处理中' },
   transcribing: { type: 'warning', text: '转录中' },
   summarizing: { type: 'warning', text: '总结中' },
+  're-summarizing': { type: 'processing', text: '重新生成摘要中' },
   completed: { type: 'success', text: '已完成' },
-  error: { type: 'danger', text: '错误' },
+  error: { type: 'error', text: '错误' },
 };
 
 // 步骤文本映射
@@ -38,14 +40,10 @@ const stepTextMap: Record<string, string> = {
   processing: '准备处理',
   transcribing: '语音识别中',
   summarizing: '生成纪要中',
+  're-summarizing': '重新生成摘要中',
   completed: '处理完成',
   error: '处理失败',
 };
-
-// URL 参数类型
-interface RouteParams {
-  id: string;
-}
 
 // 扩展的会议类型（包含可选字段）
 interface ExtendedMeeting extends MeetingResponseData {
@@ -54,12 +52,15 @@ interface ExtendedMeeting extends MeetingResponseData {
 }
 
 export default function MeetingDetail(): React.ReactElement {
-  const { id } = useParams<RouteParams>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { meeting, loading, error, refresh } = useMeeting(id || null);
   const [showTranscript, setShowTranscript] = useState<boolean>(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
+  const [regenerating, setRegenerating] = useState<boolean>(false);
+  const [streamingSummary, setStreamingSummary] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // 格式化日期
   const formatDate = (dateStr: string): string => {
@@ -139,11 +140,44 @@ export default function MeetingDetail(): React.ReactElement {
     }
   };
 
+  // 重新生成纪要
+  const handleRegenerateSummary = (): void => {
+    if (!meeting?.id) return;
+
+    setRegenerating(true);
+    setStreamingSummary('');
+
+    abortControllerRef.current = api.regenerateSummary(
+      meeting.id,
+      (chunk) => {
+        setStreamingSummary((prev) => (prev ?? '') + chunk);
+      },
+      (_summary) => {
+        setRegenerating(false);
+        setStreamingSummary(null);
+        refresh();
+        message.success('纪要重新生成成功');
+      },
+      (error) => {
+        setRegenerating(false);
+        setStreamingSummary(null);
+        message.error(error || '重新生成失败');
+      }
+    );
+  };
+
+  // 取消重新生成
+  const handleCancelRegenerate = (): void => {
+    abortControllerRef.current?.abort();
+    setRegenerating(false);
+    setStreamingSummary(null);
+  };
+
   // 如果还在处理中，定期刷新
   useEffect(() => {
     if (!meeting) return;
 
-    if (['completed', 'error'].includes(meeting.status)) {
+    if (['completed', 'error'].includes(meeting.status) && !regenerating) {
       return;
     }
 
@@ -154,12 +188,12 @@ export default function MeetingDetail(): React.ReactElement {
     return () => {
       clearInterval(timer);
     };
-  }, [meeting?.status, refresh]);
+  }, [meeting?.status, regenerating, refresh]);
 
   // 渲染 Markdown
-  const renderSummary = (): React.ReactElement => {
-    if (!meeting?.summary) return <></>;
-    const html: string = marked.parse(meeting.summary) as string;
+  const renderSummary = (content: string): React.ReactElement => {
+    if (!content) return <></>;
+    const html: string = marked.parse(content) as string;
     return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
@@ -177,7 +211,7 @@ export default function MeetingDetail(): React.ReactElement {
           <h2 style={{ margin: 0, fontSize: 24, fontWeight: 600 }}>会议详情</h2>
         </div>
         <div style={{ padding: 20 }}>
-          <Skeleton active rows={10} />
+          <Skeleton active paragraph={{ rows: 10 }} />
         </div>
       </div>
     );
@@ -221,7 +255,7 @@ export default function MeetingDetail(): React.ReactElement {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>会议信息</span>
               {meeting && (
-                <Tag color={getStatusType(meeting.status)} size="small">
+                <Tag color={getStatusType(meeting.status)}>
                   {getStatusText(meeting.status)}
                 </Tag>
               )}
@@ -251,7 +285,7 @@ export default function MeetingDetail(): React.ReactElement {
                   <Progress
                     percent={meeting.progress}
                     status={meeting.status === 'error' ? 'exception' : undefined}
-                    strokeWidth={20}
+                    size={["100%", 20]}
                   />
                   {meeting.current_step && (
                     <div style={{ marginTop: 8, fontSize: 14, color: '#606266', textAlign: 'center' }}>
@@ -275,19 +309,30 @@ export default function MeetingDetail(): React.ReactElement {
         </Card>
 
         {/* 会议纪要 */}
-        {meeting?.summary && (
+        {(meeting?.summary || regenerating) && (
           <Card
             style={{ borderRadius: 8 }}
             title={
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>会议纪要</span>
-                <Button type="primary" size="small" onClick={copySummary} icon={<CopyOutlined />}>
-                  复制纪要
-                </Button>
+                <span>会议纪要{regenerating && <SyncOutlined spin style={{ marginLeft: 8, color: '#1677ff' }} />}</span>
+                {!regenerating && meeting?.summary && (
+                  <Button type="primary" size="small" onClick={copySummary} icon={<CopyOutlined />}>
+                    复制纪要
+                  </Button>
+                )}
               </div>
             }
           >
-            {renderSummary()}
+            {regenerating && streamingSummary !== null ? (
+              <div>
+                {streamingSummary
+                  ? renderSummary(streamingSummary)
+                  : <div style={{ color: '#999', padding: '20px 0', textAlign: 'center' }}>正在生成纪要，请稍候...</div>
+                }
+              </div>
+            ) : (
+              renderSummary(meeting?.summary ?? '')
+            )}
           </Card>
         )}
 
@@ -320,15 +365,32 @@ export default function MeetingDetail(): React.ReactElement {
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
+          alignItems: 'center',
           paddingTop: 20,
           borderTop: '1px solid #eee',
         }}>
-          {meeting?.transcript && (
-            <Button onClick={toggleTranscript}>
-              {showTranscript ? '隐藏' : '显示'}原始转录
-            </Button>
-          )}
-          <Button type="primary" danger onClick={handleDelete} icon={<DeleteOutlined />}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {meeting?.transcript && (
+              <Button onClick={toggleTranscript}>
+                {showTranscript ? '隐藏' : '显示'}原始转录
+              </Button>
+            )}
+            {meeting?.transcript && !regenerating && (
+              <Button
+                icon={<SyncOutlined />}
+                onClick={handleRegenerateSummary}
+                disabled={['uploaded', 'processing', 'transcribing', 'summarizing'].includes(meeting.status)}
+              >
+                重新生成纪要
+              </Button>
+            )}
+            {regenerating && (
+              <Button onClick={handleCancelRegenerate}>
+                取消生成
+              </Button>
+            )}
+          </div>
+          <Button type="primary" danger onClick={handleDelete} icon={<DeleteOutlined />} disabled={regenerating}>
             删除会议
           </Button>
         </div>

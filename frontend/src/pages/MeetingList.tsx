@@ -17,12 +17,12 @@ import type { ColumnsType } from 'antd/es/table';
 
 // 状态配置
 const statusConfig: Record<string, { type: string; text: string }> = {
-  uploaded: { type: 'info', text: '已上传' },
-  processing: { type: 'primary', text: '处理中' },
+  uploaded: { type: 'default', text: '已上传' },
+  processing: { type: 'processing', text: '处理中' },
   transcribing: { type: 'warning', text: '转录中' },
   summarizing: { type: 'warning', text: '总结中' },
   completed: { type: 'success', text: '已完成' },
-  error: { type: 'danger', text: '错误' },
+  error: { type: 'error', text: '错误' },
 };
 
 // 步骤文本映射
@@ -148,7 +148,7 @@ export default function MeetingList(): React.ReactElement {
           <Progress
             percent={progress}
             status={record.status === 'error' ? 'exception' : undefined}
-            strokeWidth={8}
+            size={["100%", 8]}
           />
           {record.current_step && (
             <div style={{ fontSize: 12, color: '#909399', marginTop: 4, textAlign: 'center' }}>

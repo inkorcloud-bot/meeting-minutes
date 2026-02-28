@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # ASR 轮询配置（大音频文件推理耗时较长，适当增加等待时间）
     ASR_POLL_INTERVAL: float = 5.0  # 轮询间隔（秒）
     ASR_MAX_POLLS: int = 720  # 最大轮询次数（默认 720 次 = 60 分钟）
+
+    # LLM 并发控制：同时最多允许 N 个任务调用 LLM，其余在队列中等待
+    LLM_CONCURRENCY: int = 2
     
     class Config:
         env_file = ".env"

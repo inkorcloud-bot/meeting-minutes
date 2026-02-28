@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosResponse, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import type {
   BaseResponse,
   UploadResponseData,
@@ -10,7 +10,7 @@ import type {
 
 // 创建 axios 实例
 const apiClient: AxiosInstance = axios.create({
-  baseURL: 'http://localhost:8000/api/v1',
+  baseURL: '/api/v1',
   timeout: 300000, // 5分钟超时（用于处理大文件上传）
   headers: {
     'Content-Type': 'application/json',
@@ -19,10 +19,10 @@ const apiClient: AxiosInstance = axios.create({
 
 // 请求拦截器
 apiClient.interceptors.request.use(
-  (config: AxiosRequestConfig) => {
+  (config: InternalAxiosRequestConfig) => {
     // 如果是上传文件，不设置 Content-Type，让浏览器自动设置
     if (config.data instanceof FormData) {
-      delete config.headers?.['Content-Type'];
+      config.headers.delete('Content-Type');
     }
     return config;
   },
@@ -42,7 +42,7 @@ apiClient.interceptors.response.use(
       error.data = (res as { data?: unknown }).data;
       return Promise.reject(error);
     }
-    return (res as { data?: unknown }).data || res;
+    return ((res as { data?: unknown }).data || res) as AxiosResponse;
   },
   (error: AxiosError) => {
     let errorMessage = '网络错误，请稍后重试';
@@ -148,6 +148,76 @@ export const api = {
    */
   getMeetingSummary(meetingId: string): Promise<string> {
     return apiClient.get(`/meetings/${meetingId}/summary`);
+  },
+
+  /**
+   * 重新生成会议纪要（SSE 流式）
+   * @param meetingId - 会议ID
+   * @param onChunk - 每次收到流式文本块时的回调
+   * @param onDone - 生成完成时的回调，参数为完整纪要
+   * @param onError - 发生错误时的回调
+   * @returns AbortController，可调用 abort() 取消请求
+   */
+  regenerateSummary(
+    meetingId: string,
+    onChunk: (chunk: string) => void,
+    onDone: (summary: string) => void,
+    onError: (error: string) => void
+  ): AbortController {
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        const response = await fetch(`/api/v1/meetings/${meetingId}/regenerate-summary`, {
+          method: 'POST',
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          const msg = data?.detail?.message || data?.message || `请求失败 (${response.status})`;
+          onError(msg);
+          return;
+        }
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+            try {
+              const payload = JSON.parse(jsonStr);
+              if (payload.chunk !== undefined) {
+                onChunk(payload.chunk);
+              } else if (payload.done) {
+                onDone(payload.summary ?? '');
+              } else if (payload.error) {
+                onError(payload.error);
+              }
+            } catch {
+              // 忽略无法解析的行
+            }
+          }
+        }
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          onError((err as Error).message || '网络错误');
+        }
+      }
+    })();
+
+    return controller;
   },
 
   /**

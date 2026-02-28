@@ -20,9 +20,25 @@ import type { Dayjs } from 'dayjs';
 const { Dragger } = Upload;
 const { TextArea } = Input;
 
-// 支持的音频格式
-const supportedFormats: string[] = ['audio/mp3', 'audio/wav', 'audio/m4a', 'audio/ogg', 'audio/flac', 'audio/mpeg'];
-const supportedExtensions: string[] = ['.mp3', '.wav', '.m4a', '.ogg', '.flac'];
+// 支持的音频/视频格式（由 ASR API 决定）
+const supportedFormats: string[] = [
+  'audio/mp3', 'audio/mpeg', 'audio/wav', 'audio/wave', 'audio/x-wav',
+  'audio/m4a', 'audio/x-m4a', 'audio/ogg', 'audio/flac', 'audio/x-flac',
+  'audio/aac', 'audio/x-aac', 'audio/opus', 'audio/webm', 'audio/amr',
+  'audio/mp4', 'audio/x-ms-wma', 'audio/vnd.wave',
+  'video/mp4', 'video/webm', 'video/x-matroska', 'video/x-flv',
+  'video/mp2t', 'video/quicktime', 'video/x-msvideo',
+];
+const supportedExtensions: string[] = [
+  '.3gp', '.3g2', '.8svx', '.aa', '.aac', '.aax', '.ac3', '.act', '.adp', '.adts',
+  '.adx', '.aif', '.aiff', '.amr', '.ape', '.asf', '.ast', '.au', '.avr', '.caf',
+  '.cda', '.dff', '.dsf', '.dsm', '.dss', '.dts', '.eac3', '.ec3', '.f32', '.f64',
+  '.fap', '.flac', '.flv', '.gsm', '.ircam', '.m2ts', '.m4a', '.m4b', '.m4r',
+  '.mka', '.mkv', '.mp2', '.mp3', '.mp4', '.mpc', '.mpp', '.mts', '.nut', '.nsv',
+  '.oga', '.ogg', '.oma', '.opus', '.qcp', '.ra', '.ram', '.rm', '.sln', '.smp',
+  '.snd', '.sox', '.spx', '.tak', '.tta', '.voc', '.w64', '.wav', '.wave', '.webm',
+  '.wma', '.wve', '.wv', '.xa', '.xwma',
+];
 
 // 最大文件大小 500MB
 const MAX_FILE_SIZE: number = 500 * 1024 * 1024;
@@ -61,7 +77,7 @@ export default function UploadPage(): React.ReactElement {
     const isValidType: boolean = supportedFormats.includes(fileToValidate.type) || isValidExtension;
     
     if (!isValidType) {
-      message.error('不支持的文件格式，请上传 MP3、WAV、M4A、OGG 或 FLAC 格式的音频文件');
+      message.error('不支持的文件格式，请上传常见音频或视频格式文件（如 MP3、WAV、AAC、FLAC、OGG、M4A、MP4、MKV 等）');
       return false;
     }
     return true;
@@ -261,7 +277,7 @@ export default function UploadPage(): React.ReactElement {
               fileList={fileList}
               onChange={handleFileChange}
               beforeUpload={() => false}
-              accept="audio/*"
+              accept={supportedExtensions.join(',')}
               multiple={false}
               maxCount={1}
             >
@@ -311,7 +327,7 @@ export default function UploadPage(): React.ReactElement {
           {estimatedTime && (
             <div style={{ marginBottom: 20 }}>
               <Alert
-                title="预计处理时间"
+                message="预计处理时间"
                 description={`根据音频时长，预计需要 ${estimatedTime} 完成处理`}
                 type="warning"
                 showIcon

@@ -17,6 +17,19 @@ from app.models.database import Meeting, async_session
 
 logger = logging.getLogger(__name__)
 
+# LLM 并发信号量：延迟初始化，在第一次使用时根据配置创建
+# 必须在事件循环启动后创建，因此不能在模块加载时直接实例化
+_llm_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def get_llm_semaphore() -> asyncio.Semaphore:
+    """获取（或初始化）LLM 并发信号量"""
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(settings.LLM_CONCURRENCY)
+        logger.info(f"LLM semaphore initialized with concurrency={settings.LLM_CONCURRENCY}")
+    return _llm_semaphore
+
 
 class MeetingProcessor:
     """会议记录异步处理器"""
@@ -303,38 +316,48 @@ class MeetingProcessor:
                 await self.update_progress('error', 15, error=user_error, error_details=error_details)
                 return False
             
-            # 步骤 2: 生成会议纪要（使用流式 API，在内存中聚合后保存）
+            # 步骤 2: 生成会议纪要（并发受 LLM_CONCURRENCY 限制，超出则排队等待）
             try:
-                await self.update_progress('summarizing', 70)
-                logger.info(f"Starting summary generation for {self.meeting_id}")
-                
-                llm_client = LLMClient(
-                    settings.LLM_BASE_URL,
-                    settings.LLM_API_KEY,
-                    settings.LLM_MODEL,
-                    max_retries=3
-                )
-                
-                summary_parts = []
-                async for chunk in llm_client.generate_summary_stream(
-                    transcript=transcript,
-                    title=title,
-                    date=date,
-                    participants=participants
-                ):
-                    summary_parts.append(chunk)
-                summary = "".join(summary_parts)
-                if not summary:
-                    raise LLMServiceError("大模型返回空内容")
-                
-                logger.info(f"Summary generation completed for {self.meeting_id}, summary length: {len(summary)}")
-                
-                # 保存纪要并标记完成
-                await self.save_summary(summary)
-                logger.info(f"Processing completed successfully for meeting {self.meeting_id}")
-                
+                llm_semaphore = get_llm_semaphore()
+                queue_size = settings.LLM_CONCURRENCY - llm_semaphore._value  # noqa: SLF001
+                if queue_size >= settings.LLM_CONCURRENCY:
+                    logger.info(
+                        f"Meeting {self.meeting_id} waiting for LLM slot "
+                        f"(concurrency={settings.LLM_CONCURRENCY})"
+                    )
+                    await self.update_progress('waiting-llm-queue', 60)
+
+                async with llm_semaphore:
+                    await self.update_progress('summarizing', 70)
+                    logger.info(f"Starting summary generation for {self.meeting_id}")
+
+                    llm_client = LLMClient(
+                        settings.LLM_BASE_URL,
+                        settings.LLM_API_KEY,
+                        settings.LLM_MODEL,
+                        max_retries=3
+                    )
+
+                    summary_parts = []
+                    async for chunk in llm_client.generate_summary_stream(
+                        transcript=transcript,
+                        title=title,
+                        date=date,
+                        participants=participants
+                    ):
+                        summary_parts.append(chunk)
+                    summary = "".join(summary_parts)
+                    if not summary:
+                        raise LLMServiceError("大模型返回空内容")
+
+                    logger.info(f"Summary generation completed for {self.meeting_id}, summary length: {len(summary)}")
+
+                    # 保存纪要并标记完成
+                    await self.save_summary(summary)
+                    logger.info(f"Processing completed successfully for meeting {self.meeting_id}")
+
                 return True
-                
+
             except Exception as e:
                 user_error, error_details = await self._handle_processing_error('summarizing', e)
                 await self.update_progress('error', 70, error=user_error, error_details=error_details)

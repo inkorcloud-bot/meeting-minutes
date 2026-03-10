@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.4
     LLM_TOP_P: float = 0.85
     LLM_THINKING_BUDGET: int = 10000  # 深度思考 token 预算（DeepSeek 等）
+    LLM_MAX_TOKENS: int = 6000  # 单次响应最大输出 token 数
     
     # 前端静态文件目录（相对于 backend/ 运行目录）
     FRONTEND_DIST_DIR: str = "../frontend/dist"

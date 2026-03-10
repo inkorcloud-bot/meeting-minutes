@@ -108,7 +108,7 @@ class LLMClient:
                 ],
                 temperature=settings.LLM_TEMPERATURE,
                 top_p=settings.LLM_TOP_P,
-                max_tokens=3000,
+                max_tokens=settings.LLM_MAX_TOKENS,
                 timeout=120.0,  # 2 分钟超时
                 extra_body={
                     "enable_thinking": True,
@@ -121,7 +121,10 @@ class LLMClient:
                 raise LLMServiceError("LLM returned empty response")
             
             # 去除深度思考内容（<think>...</think>）
-            summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL).strip()
+            summary = re.sub(r'<think>.*?</think>', '', summary, flags=re.DOTALL)
+            # 处理只有 </think> 没有 <think> 的情况：去除开头至 </think> 的全部内容
+            summary = re.sub(r'^.*?</think>', '', summary, flags=re.DOTALL)
+            summary = summary.strip()
             if not summary:
                 raise LLMServiceError("LLM returned empty response after removing thinking content")
             
@@ -196,7 +199,7 @@ class LLMClient:
                 ],
                 temperature=settings.LLM_TEMPERATURE,
                 top_p=settings.LLM_TOP_P,
-                max_tokens=3000,
+                max_tokens=settings.LLM_MAX_TOKENS,
                 timeout=120.0,
                 stream=True,
                 extra_body={
@@ -206,7 +209,11 @@ class LLMClient:
             )
             
             # 状态机：过滤 <think>...</think> 思考过程
+            # think_resolved: True 表示已确定开头是否存在孤立 </think>
+            # pre_buf: 在 think_resolved 之前的预缓冲区，用于检测孤立 </think>
             in_thinking = False
+            think_resolved = False
+            pre_buf = ""
             buf = ""
             OPEN_TAG = "<think>"
             CLOSE_TAG = "</think>"
@@ -217,7 +224,30 @@ class LLMClient:
                 delta = chunk.choices[0].delta
                 if not (delta and delta.content):
                     continue
-                buf += delta.content
+
+                if not think_resolved:
+                    pre_buf += delta.content
+                    open_idx = pre_buf.find(OPEN_TAG)
+                    close_idx = pre_buf.find(CLOSE_TAG)
+
+                    if open_idx != -1 and (close_idx == -1 or open_idx <= close_idx):
+                        # 正常情况：先遇到 <think>，输出其前面的内容后进入思考过滤
+                        think_resolved = True
+                        if open_idx > 0:
+                            yield pre_buf[:open_idx]
+                        in_thinking = True
+                        buf = pre_buf[open_idx + len(OPEN_TAG):]
+                        pre_buf = ""
+                    elif close_idx != -1:
+                        # 孤立 </think>：丢弃开头至 </think> 的全部内容
+                        think_resolved = True
+                        buf = pre_buf[close_idx + len(CLOSE_TAG):]
+                        pre_buf = ""
+                    else:
+                        # 尚未发现任何标签，继续缓冲
+                        continue
+                else:
+                    buf += delta.content
 
                 while buf:
                     if in_thinking:
@@ -250,8 +280,12 @@ class LLMClient:
                             buf = buf[safe_len:]
                             break
 
-            # 流结束，若剩余 buf 不在思考块内则输出
-            if not in_thinking and buf:
+            # 流结束处理
+            if not think_resolved:
+                # 整个流中未出现任何思考标签，直接输出预缓冲内容
+                if pre_buf:
+                    yield pre_buf
+            elif not in_thinking and buf:
                 yield buf
 
             logger.info("Stream summary completed successfully")

@@ -332,7 +332,7 @@ class LLMClient:
         Returns:
             完整的 Prompt 文本
         """
-        parts = ["请根据以下会议转录内容，整理成结构清晰的会议纪要。\n"]
+        parts = []
         meeting_info = []
         if title:
             meeting_info.append(f"会议主题：{title}")
@@ -340,8 +340,10 @@ class LLMClient:
             meeting_info.append(f"会议日期和时间：{date}")
         if participants:
             meeting_info.append(f"参会人员：{participants}")
+        else:
+            meeting_info.append("参会人员：未指定，用户未录入，如需整理参会人员信息，可使用参会人员A、参会人员B、参会人员C等占位符")
         if meeting_info:
-            parts.append("已知的会议信息：\n" + "\n".join(meeting_info) + "\n\n")
+            parts.append("已知的会议信息,由用户手动录入，可根据这些信息整理会议纪要和对转录内容进行纠错：\n" + "\n".join(meeting_info) + "\n\n")
         parts.append("会议转录内容：\n")
         parts.append(transcript)
         return "".join(parts)

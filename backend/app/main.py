@@ -1,21 +1,49 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.exceptions import (
     MeetingMinutesException,
     get_user_friendly_error
 )
-from app.models.database import init_db, close_db
+from app.models.database import init_db, close_db, async_session, Meeting
 from app.api.upload import router as upload_router
 from app.api.meetings import router as meetings_router
 
 logger = logging.getLogger(__name__)
+
+
+async def recover_interrupted_tasks():
+    """服务重启时，将中断的任务恢复为可重试状态。
+
+    re-summarizing 是通过 HTTP 流式响应驱动的，服务重启后连接断开，
+    任务永远无法完成，且前端无法重新触发（该状态被视为"处理中"）。
+    将其重置为 error，用户可手动重新生成。
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(Meeting).where(Meeting.status == "re-summarizing")
+        )
+        stale = result.scalars().all()
+        if not stale:
+            return
+        for m in stale:
+            m.status = "error"
+            m.current_step = "error"
+            m.error = "服务重启导致任务中断，请重新生成纪要"
+            m.updated_at = datetime.utcnow()
+            logger.warning(
+                f"Recovered stale re-summarizing task for meeting {m.id} ({m.title!r})"
+            )
+        await session.commit()
+        logger.info(f"Recovered {len(stale)} interrupted re-summarizing task(s) on startup")
 
 
 @asynccontextmanager
@@ -23,6 +51,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # 启动时执行
     await init_db()
+    await recover_interrupted_tasks()
     yield
     # 关闭时执行
     await close_db()

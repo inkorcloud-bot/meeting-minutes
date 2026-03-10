@@ -32,6 +32,7 @@ const statusConfig: Record<string, { type: string; text: string }> = {
   're-summarizing': { type: 'processing', text: '重新生成摘要中' },
   completed: { type: 'success', text: '已完成' },
   error: { type: 'error', text: '错误' },
+  failed: { type: 'error', text: '失败' },
 };
 
 // 步骤文本映射
@@ -43,6 +44,7 @@ const stepTextMap: Record<string, string> = {
   're-summarizing': '重新生成摘要中',
   completed: '处理完成',
   error: '处理失败',
+  failed: '处理失败',
 };
 
 // 扩展的会议类型（包含可选字段）

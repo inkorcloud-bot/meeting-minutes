@@ -195,7 +195,7 @@ export default function MeetingDetail(): React.ReactElement {
   // 渲染 Markdown
   const renderSummary = (content: string): React.ReactElement => {
     if (!content) return <></>;
-    const html: string = marked.parse(content) as string;
+    const html: string = marked.parse(content, { breaks: true }) as string;
     return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: html }} />;
   };
 

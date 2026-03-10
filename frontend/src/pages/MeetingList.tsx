@@ -21,6 +21,7 @@ const statusConfig: Record<string, { type: string; text: string }> = {
   processing: { type: 'processing', text: '处理中' },
   transcribing: { type: 'warning', text: '转录中' },
   summarizing: { type: 'warning', text: '总结中' },
+  're-summarizing': { type: 'processing', text: '重新生成摘要中' },
   completed: { type: 'success', text: '已完成' },
   error: { type: 'error', text: '错误' },
 };
@@ -31,6 +32,7 @@ const stepTextMap: Record<string, string> = {
   processing: '准备处理',
   transcribing: '语音识别中',
   summarizing: '生成纪要中',
+  're-summarizing': '重新生成摘要中',
   completed: '处理完成',
   error: '处理失败',
 };

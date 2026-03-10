@@ -108,7 +108,7 @@ class LLMClient:
                 ],
                 temperature=settings.LLM_TEMPERATURE,
                 top_p=settings.LLM_TOP_P,
-                max_tokens=3000,
+                max_tokens=settings.LLM_MAX_TOKENS,
                 timeout=120.0,  # 2 分钟超时
                 extra_body={
                     "enable_thinking": True,
@@ -196,7 +196,7 @@ class LLMClient:
                 ],
                 temperature=settings.LLM_TEMPERATURE,
                 top_p=settings.LLM_TOP_P,
-                max_tokens=3000,
+                max_tokens=settings.LLM_MAX_TOKENS,
                 timeout=120.0,
                 stream=True,
                 extra_body={

@@ -67,7 +67,9 @@ export default function MeetingDetail(): React.ReactElement {
   // 格式化日期
   const formatDate = (dateStr: string): string => {
     if (!dateStr) return '-';
-    const date: Date = new Date(dateStr);
+    // 若字符串不含时区信息，补上 'Z' 以明确标识为 UTC，确保浏览器正确转换为本地时间
+    const normalized = /[Z+]/.test(dateStr) ? dateStr : dateStr + 'Z';
+    const date: Date = new Date(normalized);
     return date.toLocaleString('zh-CN', {
       year: 'numeric',
       month: '2-digit',

@@ -18,7 +18,8 @@ import {
   DeleteOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
-import { marked } from 'marked';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useMeeting } from '../api/hooks';
 import { api } from '../api';
 import type { MeetingResponseData } from '../types';
@@ -197,8 +198,13 @@ export default function MeetingDetail(): React.ReactElement {
   // 渲染 Markdown
   const renderSummary = (content: string): React.ReactElement => {
     if (!content) return <></>;
-    const html: string = marked.parse(content, { breaks: true }) as string;
-    return <div className="markdown-content" dangerouslySetInnerHTML={{ __html: html }} />;
+    return (
+      <div className="markdown-content">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   const extendedMeeting: ExtendedMeeting | null = meeting ? {

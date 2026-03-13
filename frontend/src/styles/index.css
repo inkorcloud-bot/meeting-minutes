@@ -18,42 +18,60 @@ body {
 
 .markdown-content {
   line-height: 1.8;
+  font-size: 14px;
+  color: #374151;
 }
 
 .markdown-content h1,
 .markdown-content h2,
-.markdown-content h3 {
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-  font-weight: 600;
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  color: #111827 !important;
 }
 
 .markdown-content h1 {
-  font-size: 1.8em;
+  font-size: 1.8em !important;
   border-bottom: 1px solid #e5e7eb;
   padding-bottom: 0.3em;
 }
 
 .markdown-content h2 {
-  font-size: 1.5em;
+  font-size: 1.5em !important;
+  border-bottom: 1px solid #f3f4f6;
+  padding-bottom: 0.2em;
 }
 
 .markdown-content h3 {
-  font-size: 1.25em;
+  font-size: 1.25em !important;
+}
+
+.markdown-content h4 {
+  font-size: 1.1em !important;
+}
+
+.markdown-content h5,
+.markdown-content h6 {
+  font-size: 1em !important;
 }
 
 .markdown-content p {
-  margin: 1em 0;
+  margin: 0.8em 0;
 }
 
 .markdown-content ul,
 .markdown-content ol {
   padding-left: 2em;
-  margin: 1em 0;
+  margin: 0.8em 0;
 }
 
 .markdown-content li {
-  margin: 0.5em 0;
+  margin: 0.4em 0;
 }
 
 .markdown-content code {
@@ -61,7 +79,7 @@ body {
   padding: 0.2em 0.4em;
   border-radius: 3px;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 0.9em;
+  font-size: 0.875em;
 }
 
 .markdown-content pre {
@@ -77,6 +95,7 @@ body {
   background-color: transparent;
   padding: 0;
   color: inherit;
+  font-size: 1em;
 }
 
 .markdown-content blockquote {
@@ -87,18 +106,59 @@ body {
 }
 
 .markdown-content table {
-  border-collapse: collapse;
+  display: table !important;
+  border-collapse: collapse !important;
   width: 100%;
   margin: 1em 0;
+  overflow-x: auto;
+}
+
+.markdown-content thead {
+  display: table-header-group !important;
+}
+
+.markdown-content tbody {
+  display: table-row-group !important;
+}
+
+.markdown-content tr {
+  display: table-row !important;
 }
 
 .markdown-content th,
 .markdown-content td {
-  border: 1px solid #e5e7eb;
-  padding: 0.5em 1em;
-  text-align: left;
+  display: table-cell !important;
+  border: 1px solid #e5e7eb !important;
+  padding: 0.6em 1em !important;
+  text-align: left !important;
 }
 
 .markdown-content th {
-  background-color: #f9fafb;
+  background-color: #f9fafb !important;
+  font-weight: 600 !important;
+}
+
+.markdown-content tr:nth-child(even) td {
+  background-color: #fafafa;
+}
+
+.markdown-content a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.5em 0;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
 }
